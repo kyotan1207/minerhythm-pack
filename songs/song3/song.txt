@@ -1,0 +1,6 @@
+id=song3
+title=ベースラインやってる？笑 - かめりあ feat. ななひら
+artist=ななひら / Nanahira
+bpm=128.25
+offset=0
+duration=287168

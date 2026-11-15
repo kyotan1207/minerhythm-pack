@@ -59,7 +59,7 @@ footer input[type=range]{flex:1;accent-color:var(--acc)}
 .toast.show{display:flex}
 .modal{position:fixed;inset:0;background:#000a;display:none;place-items:center;z-index:10}
 .modal.show{display:grid}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;width:min(640px,94vw);display:flex;flex-direction:column;gap:10px}
+.card{max-height:92vh;overflow-y:auto;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;width:min(640px,94vw);display:flex;flex-direction:column;gap:10px}
 .card h3{margin:0}
 .card textarea{width:100%;height:220px;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:8px;font:13px/1.4 ui-monospace,monospace;padding:8px}
 .cmd{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font:14px ui-monospace,monospace;overflow-x:auto;white-space:nowrap}
@@ -158,7 +158,20 @@ footer input[type=range]{flex:1;accent-color:var(--acc)}
 
 <div class="modal" id="saveModal">
   <div class="card">
-    <h3>譜面をサーバーに入れる</h3>
+    <div id="srv" class="hide">
+      <h3>ワールドに保存</h3>
+      <p class="help" style="margin:4px 0 8px">GitHub に送ると、30秒ほどでゲームに反映されます(ゲーム内に通知が出ます)。</p>
+      <div id="tokRow">
+        <div class="row"><label for="tok">GitHubトークン(最初だけ)</label></div>
+        <input id="tok" type="password" autocomplete="off" placeholder="github_pat_…(config.yml に書いたもの)" style="width:100%;margin:4px 0">
+        <label class="help"><input id="tokKeep" type="checkbox" checked> このブラウザに覚えさせる(GitHub以外には送られません)</label>
+      </div>
+      <div class="row" style="margin-top:8px"><button id="srvSave" class="pri">ワールドに保存</button><button id="tokForget" class="hide">トークンを忘れる</button></div>
+      <div id="srvState" class="help" style="margin-top:6px"></div>
+      <hr style="border:0;border-top:1px solid var(--line);margin:14px 0 4px">
+    </div>
+    <h3>ファイルで保存して取り込む</h3>
+    <div class="row"><button id="fileSave">ファイルとして保存</button></div>
     <div id="saveState" class="help"></div>
     <ol class="help" style="margin:0;padding-left:20px">
       <li>保存したファイル <b id="fname">-</b> を、サーバーの <b>plugins/MineRhythm/import/</b> に入れる</li>
@@ -789,7 +802,15 @@ stage.addEventListener('drop', e => { e.preventDefault(); stage.classList.remove
 let downloads = null;
 if (window.claude && window.claude.use) window.claude.use('downloads').then(d => downloads = d).catch(() => {});
 
-async function save() {
+function ghRepo() {
+  if (location.hostname === '127.0.0.1' && /[?&]ghtest=1/.test(location.search)) return {owner: 'o', repo: 'r', api: location.origin}; // 動作確認用
+  if (!S.remote || !location.hostname.endsWith('.github.io')) return null;
+  const repo = location.pathname.split('/').filter(Boolean)[0];
+  return repo ? {owner: location.hostname.split('.')[0], repo} : null;
+}
+const getTok = () => { try { return localStorage.getItem('mrGhToken') || ''; } catch (e) { return ''; } };
+
+function save() {
   if (!S.notes.length) { toast('ノーツがありません'); return; }
   const text = exportChart();
   const id = S.songId || 'song1';
@@ -797,27 +818,82 @@ async function save() {
   $('fname').textContent = fname;
   $('cmd').textContent = `/mr chart ${id} ${S.diff} ${fname}`;
   $('outText').value = text;
+  $('saveState').innerHTML = S.warn.size ? '⚠ 1つの照準では取れない重なりが ' + S.warn.size + ' 個あります(赤い点線)。' : '';
+  const gh = ghRepo();
+  $('srv').classList.toggle('hide', !gh);
+  const has = !!getTok();
+  $('tokRow').classList.toggle('hide', has);
+  $('tokForget').classList.toggle('hide', !has);
+  $('srvState').innerHTML = S.warn.size ? '⚠ 取れない重なりが ' + S.warn.size + ' 個あります(赤い点線)。そのままでも保存できます。' : '';
+  $('saveModal').classList.add('show');
+}
+
+function toB64(str) {
+  const bytes = new TextEncoder().encode(str);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+
+async function serverSave() {
+  const gh = ghRepo();
+  if (!gh) return;
+  const tok = $('tok').value.trim() || getTok();
+  if (!tok) { $('srvState').textContent = 'トークンを入力してください'; return; }
+  const btn = $('srvSave');
+  btn.disabled = true; $('srvState').textContent = '送信中…';
+  const name = `${S.songId}__${S.diff}__${Date.now()}.chart`;
+  try {
+    const r = await fetch(`${gh.api || 'https://api.github.com'}/repos/${gh.owner}/${gh.repo}/contents/inbox/${name}`, {
+      method: 'PUT',
+      headers: {Authorization: 'Bearer ' + tok, Accept: 'application/vnd.github+json'},
+      body: JSON.stringify({message: `MineRhythm editor: ${S.songId} ${S.diff}`, content: toB64($('outText').value)}),
+    });
+    if (r.status === 200 || r.status === 201) {
+      if ($('tok').value.trim() && $('tokKeep').checked) { try { localStorage.setItem('mrGhToken', tok); } catch (e) {} }
+      $('tok').value = '';
+      $('srvState').innerHTML = '<b style="color:#7dff4a">送りました。</b>30秒ほどでワールドに反映されます(ゲーム内に通知が出ます)。';
+      toast('ワールドに保存しました(反映まで約30秒)');
+    } else if (r.status === 401) {
+      $('srvState').textContent = 'トークンが違うか、期限切れです。もう一度入力してください。';
+      try { localStorage.removeItem('mrGhToken'); } catch (e) {}
+      $('tokRow').classList.remove('hide');
+    } else if (r.status === 403 || r.status === 404) {
+      $('srvState').textContent = 'このリポジトリに書き込む権限がありません。トークンの Contents が「Read and write」か確認してください。(HTTP ' + r.status + ')';
+    } else {
+      $('srvState').textContent = '送れませんでした(HTTP ' + r.status + ')。少し待ってもう一度試してください。';
+    }
+  } catch (e) {
+    $('srvState').textContent = '送れませんでした。ネットにつながっているか確認してください。';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function fileSave() {
+  const text = $('outText').value, fname = $('fname').textContent;
   let st = '';
-  if (S.warn.size) st += '⚠ 1つの照準では取れない重なりが ' + S.warn.size + ' 個あります(赤い点線)。<br>';
   if (downloads) {
-    try { await downloads.save({filename: fname, data: text}); st += 'ファイルを保存しました。'; }
-    catch (e) { st += e && e.code === 'declined' ? '保存をキャンセルしました。下の「譜面の中身をコピー」でも持ち出せます。' : 'ファイルを保存できませんでした。下の中身をコピーして、メモ帳で ' + esc(fname) + ' として保存してください。'; }
+    try { await downloads.save({filename: fname, data: text}); st = 'ファイルを保存しました。'; }
+    catch (e) { st = e && e.code === 'declined' ? '保存をキャンセルしました。' : 'ファイルを保存できませんでした。下の中身をコピーして ' + esc(fname) + ' として保存してください。'; }
   } else if (!(window.claude && window.claude.use)) {
     try {
       const a = document.createElement('a');
       a.href = URL.createObjectURL(new Blob([text], {type: 'text/plain'}));
       a.download = fname; document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-      st += 'ファイルを保存しました(ブラウザのダウンロードフォルダ)。';
-    } catch (e) { st += 'ファイルを保存できませんでした。下の中身をコピーして ' + esc(fname) + ' として保存してください。'; }
+      st = 'ファイルを保存しました(ブラウザのダウンロードフォルダ)。';
+    } catch (e) { st = 'ファイルを保存できませんでした。下の中身をコピーして ' + esc(fname) + ' として保存してください。'; }
   } else {
-    st += 'この画面ではファイルを直接保存できません。下の「譜面の中身をコピー」を押して、メモ帳などに貼り付け、<b>' + esc(fname) + '</b> という名前で保存してください。';
+    st = 'この画面ではファイルを直接保存できません。下の「譜面の中身をコピー」を押して、メモ帳などに貼り付け、<b>' + esc(fname) + '</b> という名前で保存してください。';
   }
   $('saveState').innerHTML = st;
-  $('saveModal').classList.add('show');
 }
 const copy = async (txt, label) => { try { await navigator.clipboard.writeText(txt); toast(label + 'をコピーしました'); } catch (e) { toast('コピーできませんでした。手で選択してコピーしてください'); } };
 $('saveBtn').addEventListener('click', save);
+$('srvSave').addEventListener('click', serverSave);
+$('fileSave').addEventListener('click', fileSave);
+$('tokForget').addEventListener('click', () => { try { localStorage.removeItem('mrGhToken'); } catch (e) {} $('tokRow').classList.remove('hide'); $('tokForget').classList.add('hide'); toast('トークンを忘れました'); });
 $('copyCmd').addEventListener('click', () => copy($('cmd').textContent, 'コマンド'));
 $('copyText').addEventListener('click', () => copy($('outText').value, '譜面の中身'));
 $('closeSave').addEventListener('click', () => $('saveModal').classList.remove('show'));

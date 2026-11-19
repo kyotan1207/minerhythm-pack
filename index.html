@@ -123,9 +123,9 @@ footer input[type=range]{flex:1;accent-color:var(--acc)}
   <section class="help">
     <h2>操作</h2>
     左クリック:置く/選んで動かす<br>
-    ロング・スライド:置いてから上へドラッグ(スライドは左右で終点)<br>
+    ロング・スライド・エアーホールド:置いてから上へドラッグ(スライドは左右で終点)<br>
     右クリック:消す<br>
-    <kbd>Space</kbd> 再生/停止 <kbd>1</kbd>〜<kbd>6</kbd> 種類<br>
+    <kbd>Space</kbd> 再生/停止 <kbd>1</kbd>〜<kbd>7</kbd> 種類<br>
     選択中:<kbd>←</kbd><kbd>→</kbd> 列 <kbd>↑</kbd><kbd>↓</kbd> 時間 <kbd>Shift</kbd>+<kbd>↑</kbd><kbd>↓</kbd> 長さ <kbd>Del</kbd> 削除<br>
     ホイール:時間を移動
   </section>
@@ -193,8 +193,10 @@ const TYPES = {
   SLIDE: {name:'スライド', color:'#3d7bff', key:'4'},
   FLICK: {name:'フリック', color:'#28e0e6', key:'5'},
   AIR:   {name:'エアー', color:'#7dff4a', key:'6'},
+  AIR_HOLD: {name:'エアーホールド', color:'#3fbf2a', key:'7'},
 };
-const isLong = t => t === 'HOLD' || t === 'SLIDE';
+const isLong = t => t === 'HOLD' || t === 'SLIDE' || t === 'AIR_HOLD';
+const isAir = t => t === 'AIR' || t === 'AIR_HOLD';
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const $ = id => document.getElementById(id);
 
@@ -231,7 +233,7 @@ function estimateLevel(notes, diff) {
   const first = notes[0].t, last = Math.max(...notes.map(n => n.t + (isLong(n.type) ? n.dur : 0)));
   const sec = Math.max(10, (last - first) / 1000);
   let w = 0;
-  for (const n of notes) w += n.type === 'SLIDE' ? 1.4 : n.type === 'HOLD' ? 1.1 : (n.type === 'FLICK' || n.type === 'AIR') ? 1.2 : 1;
+  for (const n of notes) w += n.type === 'SLIDE' ? 1.4 : n.type === 'HOLD' ? 1.1 : n.type === 'AIR_HOLD' ? 1.3 : (n.type === 'FLICK' || n.type === 'AIR') ? 1.2 : 1;
   let lv = 1 + (w / sec) * 1.65 + (diff === 'master' ? 0.5 : 0);
   return Math.round(clamp(lv, 1, 15.4) * 10) / 10;
 }
@@ -240,10 +242,10 @@ function exportChart() {
   const ns = [...S.notes].sort((a, b) => a.t - b.t);
   const lv = S.level != null ? S.level : estimateLevel(ns, S.diff);
   const out = ['# MineRhythm chart v1', '# custom', '# MineRhythm 譜面エディタで作成' + (S.title ? ' / ' + S.title : '') + ' / BPM ' + S.bpm,
-    '# 書式: 時刻(ms) 種類 レーン(0-15) 幅(1-16) [長さms] [終点レーン 終点幅]', 'level ' + lv.toFixed(1)];
+    '# 書式: 時刻(ms) 種類 レーン(0-15) 幅(1-16) [長さms] [終点レーン 終点幅]  種類: TAP EXTAP HOLD SLIDE FLICK AIR AIR_HOLD', 'level ' + lv.toFixed(1)];
   for (const n of ns) {
     let s = `${n.t} ${n.type} ${n.lane} ${n.w}`;
-    if (n.type === 'HOLD') s += ` ${n.dur}`;
+    if (n.type === 'HOLD' || n.type === 'AIR_HOLD') s += ` ${n.dur}`;
     if (n.type === 'SLIDE') s += ` ${n.dur} ${n.el} ${n.ew}`;
     out.push(s);
   }
@@ -313,7 +315,7 @@ function changed(save = true) {
 /* 1カーソルでは取れない重なりを探す(同時刻・ロング中の別ノーツ) */
 function computeWarnings() {
   S.warn = new Set();
-  const ns = S.notes.filter(n => n.type !== 'AIR');
+  const ns = S.notes.filter(n => !isAir(n.type)); // エアー系はクリックと同時に取れる
   for (let i = 0; i < ns.length; i++) {
     const a = ns[i], aEnd = a.t + (isLong(a.type) ? a.dur : 0);
     for (let j = i + 1; j < ns.length; j++) {
@@ -400,7 +402,7 @@ function drawNote(n, alpha, outline) {
   cx.fillStyle = c;
   cx.beginPath(); cx.roundRect(x, y - 7, w, 14, 4); cx.fill();
   cx.fillStyle = '#0006';
-  if (n.type === 'AIR') { cx.beginPath(); cx.moveTo(x + w / 2, y - 6); cx.lineTo(x + w / 2 + 8, y + 5); cx.lineTo(x + w / 2 - 8, y + 5); cx.fill(); }
+  if (isAir(n.type)) { cx.beginPath(); cx.moveTo(x + w / 2, y - 6); cx.lineTo(x + w / 2 + 8, y + 5); cx.lineTo(x + w / 2 - 8, y + 5); cx.fill(); }
   if (n.type === 'FLICK') { cx.fillRect(x + 6, y - 1.5, w - 12, 3); }
   if (n.type === 'EXTAP') { cx.strokeStyle = '#fff'; cx.lineWidth = 2; cx.strokeRect(x + 1, y - 6, w - 2, 12); }
   if (S.warn.has(n)) { cx.strokeStyle = '#ff5a5a'; cx.lineWidth = 2; cx.setLineDash([4, 3]); cx.strokeRect(x - 2, y - 10, w + 4, 20); cx.setLineDash([]); }

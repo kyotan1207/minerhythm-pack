@@ -1,0 +1,6 @@
+id=song4
+title=【ミリプロコラボ】マトリョシカ以心伝心歌ってみた
+artist=Seijin Dansei San Ningumi Official
+bpm=136.5
+offset=0
+duration=202838

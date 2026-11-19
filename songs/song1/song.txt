@@ -1,0 +1,6 @@
+id=song1
+title=アンチユー / MORE MORE JUMP！ × 巡音ルカ
+artist=プロジェクトセカイ カラフルステージ! feat. 初音ミク
+bpm=129.04
+offset=0
+duration=208597
